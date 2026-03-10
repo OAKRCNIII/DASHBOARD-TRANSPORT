@@ -455,12 +455,26 @@ function parseDatabase(sheet){
   return map;
 }
 
-/* parseTransportBill: คืน map { normInv: [{truck,container,price,date,factory,billNo,al}] } */
+/* parseTransportBill: คืน map { normInv: [{truck,container,price,date,factory,billNo,al}] }
+   ใช้ dynamic column discovery จาก header row (ไม่ hardcode index) */
 function parseTransportBill(sheet){
   if(!sheet)return{};
   const rows=XLSX.utils.sheet_to_json(sheet,{header:1,defval:'',raw:true,cellDates:true});
   const hi=findHdrRow(rows,['INV','PRICE','วันที่']);
-  const iDate=0,iTruck=1,iInv=2,iFactory=5,iCtr=6,iPrice=7,iBill=8,iAL=9;
+  /* Dynamic column discovery จาก header row */
+  const hdr=(rows[hi]||[]).map(c=>String(c||'').trim().toUpperCase());
+  function col(kws,fallback){
+    const i=hdr.findIndex(h=>kws.some(k=>h===k||h.includes(k)));
+    return i>=0?i:fallback;
+  }
+  const iDate    =col(['วันที่'],0);
+  const iTruck   =col(['ทะเบียนรถ','ทะเบียน','TRUCK'],1);
+  const iInv     =col(['INV','โรงงาน(INV','INVOICE'],2);
+  const iFactory =col(['โรงงาน','FACTORY'],5);
+  const iCtr     =col(['เบอร์ตู้','CTR','CONTAINER','เบอร์'],6);
+  const iPrice   =col(['PRICE','ราคา'],7);
+  const iBill    =col(['OGM','BILL NO','BILL#'],8);
+  const iAL      =col(['AL'],9);
   const map={};
   for(let i=hi+1;i<rows.length;i++){
     const r=rows[i];const inv=String(r[iInv]||'').trim();if(!inv)continue;
@@ -487,8 +501,10 @@ function mergeTransport(wb2,target){
 function detectDuplicates(trMap){
   const seen={};
   const dupes=[];
+  let totalRecs=0;
   Object.keys(trMap).forEach(normInvKey=>{
     trMap[normInvKey].forEach(rec=>{
+      totalRecs++;
       const ctr=normStr(rec.container);
       const trk=normStr(rec.truck);
       if(!ctr&&!trk)return; /* ข้ามแถวที่ไม่มีข้อมูล */
@@ -500,6 +516,8 @@ function detectDuplicates(trMap){
   Object.values(seen).forEach(entry=>{
     if(entry.records.length>1)dupes.push(entry);
   });
+  console.log('[Dupe] trMap invoices:',Object.keys(trMap).length,'  total records:',totalRecs,'  dupes found:',dupes.length);
+  if(dupes.length)console.log('[Dupe] details:',dupes);
   return dupes;
 }
 
