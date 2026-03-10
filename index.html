@@ -96,6 +96,30 @@ body{font-family:'Segoe UI',Arial,sans-serif;background:#f0f4f8;color:#1a202c;fo
 .pfx-tab-all.active{background:#1a365d;color:white;border-color:#1a365d;opacity:1;}
 /* No data */
 .no-inv{text-align:center;padding:40px;color:#94a3b8;font-size:13px;}
+/* Duplicate alert bar */
+.dupe-bar{display:flex;align-items:center;gap:10px;padding:6px 16px;background:#fef2f2;border-bottom:2px solid #fca5a5;font-size:11px;color:#991b1b;cursor:pointer;transition:background .15s;}
+.dupe-bar:hover{background:#fee2e2;}
+.dupe-badge{background:#dc2626;color:white;border-radius:10px;padding:2px 8px;font-weight:800;font-size:11px;}
+.dupe-dismiss{margin-left:auto;font-size:10px;color:#b91c1c;text-decoration:underline;}
+/* Dupe modal */
+.dupe-modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:2000;display:none;align-items:center;justify-content:center;}
+.dupe-modal-bg.open{display:flex;}
+.dupe-modal{background:white;border-radius:12px;width:min(640px,96vw);max-height:80vh;display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,.2);}
+.dupe-modal-hdr{display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid #fee2e2;background:#fef2f2;border-radius:12px 12px 0 0;}
+.dupe-modal-title{font-size:14px;font-weight:800;color:#991b1b;flex:1;}
+.dupe-modal-close{font-size:20px;cursor:pointer;color:#94a3b8;line-height:1;}
+.dupe-modal-body{flex:1;overflow-y:auto;padding:12px 0;}
+.dupe-row-hdr{padding:6px 18px;background:#fef2f2;font-size:9px;font-weight:800;color:#dc2626;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid #fee2e2;border-top:1px solid #fee2e2;display:flex;gap:8px;align-items:center;}
+.dupe-row-hdr .dupe-inv{flex:1;}
+.dupe-entry{display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:6px;padding:7px 18px;border-bottom:1px solid #f1f5f9;font-size:11px;align-items:center;}
+.dupe-entry:hover{background:#fef9f9;}
+.dupe-entry .de-ctr{font-weight:700;color:#0f172a;font-family:monospace;}
+.dupe-entry .de-trk{color:#475569;}
+.dupe-entry .de-price{text-align:right;color:#059669;font-weight:700;}
+.dupe-entry .de-bill{color:#94a3b8;font-size:10px;}
+.dupe-source{display:inline-block;font-size:9px;padding:1px 5px;border-radius:4px;font-weight:700;}
+.dupe-source.ogm{background:#fef3c7;color:#92400e;}
+.dupe-source.all{background:#e0f2fe;color:#0369a1;}
 /* Bill info bar */
 .bill-info-bar{display:flex;gap:12px;padding:6px 16px;background:#f8fafc;border-bottom:1px solid #e2e8f0;font-size:11px;color:#64748b;flex-wrap:wrap;align-items:center;}
 .bill-chip{background:white;border:1px solid #e2e8f0;border-radius:6px;padding:3px 10px;display:inline-flex;gap:6px;align-items:center;}
@@ -202,6 +226,24 @@ body{font-family:'Segoe UI',Arial,sans-serif;background:#f0f4f8;color:#1a202c;fo
     <span class="bill-chip" id="billOgm"><span class="lbl">OGM</span><span class="val" id="billOgmVal">—</span></span>
     <span class="bill-chip" id="billAll"><span class="lbl">ALL</span><span class="val" id="billAllVal">—</span></span>
   </div>
+  <!-- Duplicate payment alert bar -->
+  <div class="dupe-bar" id="dupeBar" style="display:none" onclick="openDupeModal()">
+    <span>⚠️</span>
+    <span>พบรายการ <strong>จ่ายซ้ำ</strong> ที่อาจเกิดขึ้น —</span>
+    <span class="dupe-badge" id="dupeBadge">0</span>
+    <span>รายการ</span>
+    <span class="dupe-dismiss">คลิกเพื่อดูรายละเอียด →</span>
+  </div>
+  <!-- Duplicate modal -->
+  <div class="dupe-modal-bg" id="dupeModalBg" onclick="if(event.target===this)closeDupeModal()">
+    <div class="dupe-modal">
+      <div class="dupe-modal-hdr">
+        <span class="dupe-modal-title">⚠️ รายการที่อาจจ่ายซ้ำ</span>
+        <span class="dupe-modal-close" onclick="closeDupeModal()">✕</span>
+      </div>
+      <div class="dupe-modal-body" id="dupeModalBody"></div>
+    </div>
+  </div>
   <div class="stats-bar" id="sBar"></div>
   <div class="filter-bar" id="filterBar">
     <button class="ftab f-all active" data-f="all">ทั้งหมด <span id="cnt-all"></span></button>
@@ -298,12 +340,67 @@ async function getToken(){
   }
   const tok=ls('dbx_access_token');if(!tok)throw new Error('Token หมดอายุ');return tok;
 }
+/* ===== IndexedDB FILE CACHE ===== */
+let _idb=null;
+function openFileDB(){
+  if(_idb)return Promise.resolve(_idb);
+  return new Promise((res,rej)=>{
+    const req=indexedDB.open('dbx_filecache',1);
+    req.onupgradeneeded=e=>{e.target.result.createObjectStore('files',{keyPath:'path'});};
+    req.onsuccess=e=>{_idb=e.target.result;res(_idb);};
+    req.onerror=e=>rej(e);
+  });
+}
+function idbGet(db,path){
+  return new Promise(res=>{
+    db.transaction('files','readonly').objectStore('files').get(path).onsuccess=e=>res(e.target.result||null);
+  });
+}
+function idbPut(db,path,modified,buf){
+  return new Promise(res=>{
+    const tx=db.transaction('files','readwrite');
+    tx.objectStore('files').put({path,modified,buf});
+    tx.oncomplete=()=>res();
+  });
+}
+async function dbxMeta(path,token){
+  try{
+    const r=await fetch('https://api.dropboxapi.com/2/files/get_metadata',{
+      method:'POST',
+      headers:{'Authorization':'Bearer '+token,'Content-Type':'application/json'},
+      body:JSON.stringify({path})
+    });
+    if(!r.ok)return null;
+    const d=await r.json();
+    return d.server_modified||null;
+  }catch{return null;}
+}
+
+let _forceReload=false;
+
 async function dbxDownload(path){
-  setLoad('กำลังดาวน์โหลด: '+path.split('/').pop());
+  const name=path.split('/').pop();
   const token=await getToken();
+  if(!_forceReload){
+    try{
+      const db=await openFileDB();
+      const [meta,cached]=await Promise.all([dbxMeta(path,token),idbGet(db,path)]);
+      if(cached&&meta&&cached.modified===meta){
+        setLoad('✅ ใช้แคช: '+name);
+        return cached.buf;
+      }
+    }catch{}
+  }
+  setLoad('⬇️ ดาวน์โหลด: '+name);
   const resp=await fetch('https://content.dropboxapi.com/2/files/download',{method:'POST',headers:{'Authorization':'Bearer '+token,'Dropbox-API-Arg':encodeDropboxArg({path})}});
-  if(!resp.ok)throw new Error('ดาวน์โหลดไม่ได้: '+resp.status+' — '+path.split('/').pop());
-  return resp.arrayBuffer();
+  if(!resp.ok)throw new Error('ดาวน์โหลดไม่ได้: '+resp.status+' — '+name);
+  const buf=await resp.arrayBuffer();
+  try{
+    const db=await openFileDB();
+    const meta=await dbxMeta(path,token);
+    if(meta)idbPut(db,path,meta,buf.slice(0));
+  }catch{}
+  return buf;
 }
 
 /* ===== EXCEL PARSERS ===== */
@@ -382,6 +479,28 @@ function mergeTransport(wb2,target){
   if(!sh)return;
   const m=parseTransportBill(sh);
   Object.keys(m).forEach(k=>{if(!target[k])target[k]=[];target[k]=target[k].concat(m[k]);});
+}
+
+/* ===== DETECT DUPLICATE PAYMENTS =====
+   Duplicate = normInv + normStr(container) + normStr(truck) ปรากฏ > 1 ครั้งใน trMap
+   (เกิดจากกรอกซ้ำในไฟล์เดียว หรือ record เดิมอยู่ทั้งใน OGM + ALL) */
+function detectDuplicates(trMap){
+  const seen={};
+  const dupes=[];
+  Object.keys(trMap).forEach(normInvKey=>{
+    trMap[normInvKey].forEach(rec=>{
+      const ctr=normStr(rec.container);
+      const trk=normStr(rec.truck);
+      if(!ctr&&!trk)return; /* ข้ามแถวที่ไม่มีข้อมูล */
+      const key=normInvKey+'|'+ctr+'|'+trk;
+      if(!seen[key]){seen[key]={inv:normInvKey,container:rec.container,truck:rec.truck,records:[]};}
+      seen[key].records.push(rec);
+    });
+  });
+  Object.values(seen).forEach(entry=>{
+    if(entry.records.length>1)dupes.push(entry);
+  });
+  return dupes;
 }
 
 /* ===== PRE_PAID_TRANSPORT =====
@@ -474,6 +593,7 @@ let DATA=[]; /* matched invoice list */
 let curFilter='all',curPrefix='all',curSearch='',openRows=new Set();
 let curView='invoice'; /* 'invoice' | 'month' */
 let BILL_INFO={ogm:'-',all:'-'}; /* latest bill numbers */
+let DUPES=[]; /* รายการซ้ำที่ detect ได้ */
 
 /* ===== EXTRACT LATEST BILL NUMBER ===== */
 function extractLatestBill(sheet){
@@ -524,6 +644,7 @@ async function loadData(){
     BILL_INFO.all=extractLatestBill(sh||null);
     bi++;
   }
+  DUPES=detectDuplicates(trMap);
   return matchContainers(allInv,dbMap,trMap);
 }
 
@@ -751,6 +872,48 @@ function showDashboard(data){
   renderStats();
   renderPrefixBar();
   renderView();
+  renderDupeAlert();
+}
+
+/* ===== DUPLICATE ALERT ===== */
+function renderDupeAlert(){
+  const bar=document.getElementById('dupeBar');
+  if(!DUPES.length){bar.style.display='none';return;}
+  bar.style.display='flex';
+  document.getElementById('dupeBadge').textContent=DUPES.length;
+}
+function openDupeModal(){
+  const fmtPrice=n=>n?Number(n).toLocaleString('th-TH')+'฿':'—';
+  let html='';
+  DUPES.forEach((d,idx)=>{
+    const totalOverpay=d.records.slice(1).reduce((s,r)=>s+(r.price||0),0);
+    html+='<div class="dupe-row-hdr">'
+      +'<span class="dupe-inv">📋 '+h(d.inv)+'</span>'
+      +'<span style="color:#64748b;font-weight:400;">เบอร์ตู้: <strong>'+h(d.container)+'</strong></span>'
+      +'<span style="color:#64748b;font-weight:400;">ทะเบียน: <strong>'+h(d.truck)+'</strong></span>'
+      +'<span style="background:#dc2626;color:white;border-radius:4px;padding:1px 6px;">ซ้ำ '+d.records.length+'x</span>'
+      +(totalOverpay?'<span style="background:#fef3c7;color:#92400e;border-radius:4px;padding:1px 6px;font-size:9px;">⚠️ ส่วนเกิน ~'+fmtPrice(totalOverpay)+'</span>':'')
+      +'</div>';
+    /* แสดงทุก record ของ key นี้ */
+    d.records.forEach((r,i)=>{
+      const srcLabel=r.billNo&&r.billNo.toUpperCase().startsWith('AL')?'ALL':'OGM';
+      const srcCls=srcLabel==='ALL'?'all':'ogm';
+      html+='<div class="dupe-entry" style="'+(i>0?'background:#fff5f5;border-left:3px solid #fca5a5;':'')+'">'
+        +'<span class="de-ctr">'+(i===0?'①':'⚠️ '+(i+1))+'  '+h(r.container)+'</span>'
+        +'<span class="de-trk">🚛 '+h(r.truck)+'</span>'
+        +'<span class="de-price">'+fmtPrice(r.price)+'</span>'
+        +'<span><span class="dupe-source '+srcCls+'">'+srcLabel+'</span>'
+        +(r.billNo?'<span class="de-bill"> #'+h(r.billNo)+'</span>':'')
+        +(r.date&&r.date!=='-'?'<span class="de-bill"> · '+h(r.date)+'</span>':'')
+        +'</span>'
+        +'</div>';
+    });
+  });
+  document.getElementById('dupeModalBody').innerHTML=html||'<div style="padding:20px;text-align:center;color:#94a3b8;">ไม่พบรายการซ้ำ</div>';
+  document.getElementById('dupeModalBg').classList.add('open');
+}
+function closeDupeModal(){
+  document.getElementById('dupeModalBg').classList.remove('open');
 }
 
 /* ===== SETUP ===== */
@@ -838,6 +1001,7 @@ document.getElementById('invBody').addEventListener('click',e=>{
 });
 
 document.getElementById('refreshBtn').addEventListener('click',async()=>{
+  _forceReload=true;
   document.getElementById('app').style.display='none';
   document.getElementById('loadScreen').style.display='flex';
   document.getElementById('loadErr').style.display='none';
@@ -845,6 +1009,7 @@ document.getElementById('refreshBtn').addEventListener('click',async()=>{
   document.querySelector('.spinner').style.display='block';
   setLoad('กำลังโหลดข้อมูลใหม่...');openRows.clear();
   try{const data=await loadData();showDashboard(data);}catch(e){showErr(e.message);}
+  finally{_forceReload=false;}
 });
 
 document.getElementById('backBtn').addEventListener('click',()=>{window.location.href='index.html';});
