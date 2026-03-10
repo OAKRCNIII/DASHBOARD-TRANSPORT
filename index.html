@@ -359,13 +359,25 @@ function isPrePaidTr(inv){
 /* ===== MATCH: DATABASE rows ↔ TRANSPORT records ===== */
 /* Composite key: normInv(inv) + '|' + normStr(container) + '|' + normStr(truck)
    เบอร์ตู้อาจเวียนซ้ำ ต้องใช้ทั้ง 3 field */
+/* lookupDb: หา rows จาก normDb ด้วย key nk
+   ถ้า direct match ไม่เจอ → scan หา database key ที่มี nk อยู่ข้างในวงเล็บ
+   เช่น nk="TWI63" จะเจอ "TWI02(TWI63)"
+   ปลอดภัย: nk ต้องตรงกับ content ในวงเล็บทั้งหมด → (A)(B)(B-1) ไม่มั่ว */
+function lookupDb(normDb,nk){
+  if(normDb[nk])return normDb[nk];
+  const found=Object.keys(normDb).find(k=>{
+    const matches=k.match(/\(([^)]+)\)/g)||[];
+    return matches.some(p=>p.slice(1,-1)===nk);
+  });
+  return found?normDb[found]:[];
+}
 function matchContainers(allInv,dbMap,trMap){
-  /* normalise dbMap keys */
+  /* normalise dbMap keys ตรงๆ เท่านั้น ไม่แยกวงเล็บออก */
   const normDb={};
   Object.keys(dbMap).forEach(k=>{normDb[normInv(k)]=dbMap[k];});
   return allInv.map(inv=>{
     const nk=normInv(inv.inv);
-    const dbRows=normDb[nk]||[];
+    const dbRows=lookupDb(normDb,nk);
     const trRecs=trMap[nk]||[];
     /* จับคู่แต่ละ container row
        1) หา record จาก trMap ก่อน (ข้อมูลจริงจากไฟล์)
