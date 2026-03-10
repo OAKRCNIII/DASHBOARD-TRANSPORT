@@ -481,15 +481,13 @@ function extractLatestBill(sheet){
   const rows=XLSX.utils.sheet_to_json(sheet,{header:1,defval:'',raw:true});
   const hi=findHdrRow(rows,['INV','PRICE','วันที่']);
   const iBill=8;
-  let maxNum=0,maxBill='-';
+  /* เอาแถวล่าสุดที่มีเลข bill จริง (ข้อมูลเรียงตามเวลา → แถวสุดท้าย = ล่าสุด) */
+  let lastBill='-';
   for(let i=hi+1;i<rows.length;i++){
     const v=String(rows[i]&&rows[i][iBill]||'').trim();
-    if(!v||v==='-')continue;
-    /* ดึงตัวเลขออกมา เลือก bill ที่มีเลขสูงสุด */
-    const n=parseInt((v.match(/\d+/)||['0'])[0])||0;
-    if(n>maxNum||(n===0&&maxBill==='-')){maxNum=n;maxBill=v;}
+    if(v&&v!=='-')lastBill=v;
   }
-  return maxBill;
+  return lastBill;
 }
 
 async function loadData(){
