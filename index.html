@@ -344,32 +344,16 @@ function mergeTransport(wb2,target){
 }
 
 /* ===== PRE_PAID_TRANSPORT =====
-   ตู้มกราคม 2026 ที่จ่ายค่าขนส่งแล้วแต่อาจยังไม่มีในไฟล์ Dropbox
-   Composite key: normInv(inv) + '|' + normStr(container) + '|' + normStr(truck)
-   ระบุรายตู้เพื่อป้องกัน false match กับมกราคมปีหน้า */
-const PRE_PAID_TRANSPORT=new Set([
-  'BSW-T-03/2026|OOCU8213425|72-1595',       // BSW-T-03/2026 | OOCU8213425 | 72-1595
-  'INV006/001/2026(A)|OOCU7956405|72-2653',  // INV006/001/2026(A) | OOCU7956405 | 72-2653
-  'BSW-T-03/2026|TCNU2557367|71-7921',       // BSW-T-03/2026 | TCNU2557367 | 71-7921
-  'BSW-T-03/2026|OOCU6802370|72-2665',       // BSW-T-03/2026 | OOCU6802370 | 72-2665
-  'BSW-T-03/2026|TGBU8881917|70-4118',       // BSW-T-03/2026 | TGBU8881917 | 70-4118
-  'INV001/002/2026|FCIU9662733|72-3058',     // INV001/002/2026 | FCIU9662733 | 72-3058
-  'INV001/002/2026|OOCU9472631|72-1176',     // INV001/002/2026 | OOCU9472631 | 72-1176
-  'BSW-T-03/2026|OOCU7174730|70-0996',       // BSW-T-03/2026 | OOCU7174730 | 70-0996
-  'BSW-T-03/2026|FCIU9905303|70-0790',       // BSW-T-03/2026 | FCIU9905303 | 70-0790
-  'BSW-T-03/2026|CSLU6033494|72-2237',       // BSW-T-03/2026 | CSLU6033494 | 72-2237
-  'BSW-T-03/2026|CSNU8320314|72-2953',       // BSW-T-03/2026 | CSNU8320314 | 72-2953
-  'BSW-T-03/2026|OOCU8124164|72-2953',       // BSW-T-03/2026 | OOCU8124164 | 72-2953
-  'BSW-T-03/2026|OOCU8211741|72-1620',       // BSW-T-03/2026 | OOCU8211741 | 72-1620
-  'INV001/002/2026|TGBU4870540|72-2953',     // INV001/002/2026 | TGBU4870540 | 72-2953
-  'INV001/002/2026|OOCU7650987|71-9538',     // INV001/002/2026 | OOCU7650987 | 71-9538
-  'BSW-T-03/2026|CSNU8017416|72-2420',       // BSW-T-03/2026 | CSNU8017416 | 72-2420
-  'INV006/001/2026(A)|OOCU7186686|72-2420',  // INV006/001/2026(A) | OOCU7186686 | 72-2420
-  'BSW-T-03/2026|FFAU5873643|72-0562',       // BSW-T-03/2026 | FFAU5873643 | 72-0562
-]); /* 18 ตู้ — มกราคม 2026 */
-function isPrePaidTr(inv,container,truck){
-  const k=normInv(inv)+'|'+normStr(container)+'|'+normStr(truck);
-  return PRE_PAID_TRANSPORT.has(k);
+   อินวอยซ์มกราคม 2026 ที่จ่ายค่าขนส่งครบแล้ว
+   ใช้ normInv(inv) เป็น key — เลขอินวอยซ์มีปี 2026 อยู่แล้ว
+   จึงไม่มี false match กับมกราคมปีหน้า (จะเป็น 2027) */
+const PRE_PAID_INV=new Set([
+  'BSW-T-03/2026',        // BSW — มกราคม 2026 (13 ตู้)
+  'INV001/002/2026',      // TWI/OTH — มกราคม 2026 (3 ตู้)
+  'INV006/001/2026(A)',   // OGM — มกราคม 2026 (2 ตู้)
+]); /* 3 invoice — 18 ตู้ — มกราคม 2026 */
+function isPrePaidTr(inv){
+  return PRE_PAID_INV.has(normInv(inv));
 }
 
 /* ===== MATCH: DATABASE rows ↔ TRANSPORT records ===== */
@@ -391,7 +375,7 @@ function matchContainers(allInv,dbMap,trMap){
         normStr(tr.container)===normStr(row.เบอร์ตู้)&&
         normStr(tr.truck)===normStr(row.ทะเบียนรถ)
       )||null;
-      const prePaid=!matched&&isPrePaidTr(inv.inv,row.เบอร์ตู้,row.ทะเบียนรถ);
+      const prePaid=!matched&&isPrePaidTr(inv.inv);
       /* prePaid: สร้าง synthetic match object เพื่อให้ logic เดิมทำงานได้ */
       const effectiveMatch=matched||(prePaid?{price:0,date:'-',factory:'-',billNo:'ยืนยันแล้ว (ม.ค.2026)',al:'',_prePaid:true}:null);
       return{...row,trMatch:effectiveMatch};
