@@ -301,9 +301,12 @@ function parseAllInv(sheet){
 function parseDatabase(sheet){
   if(!sheet)return{};
   const rows=XLSX.utils.sheet_to_json(sheet,{header:1,defval:'',raw:false,cellDates:true});
-  const hi=findHdrRow(rows,['ทะเบียนรถ','โรงงาน(inv']);
+  const hi=findHdrRow(rows,['ทะเบียนรถ','โรงงาน(inv','อินวอยซ์']);
   const hdr=rows[hi].map(c=>String(c||'').trim());
-  const iTrk=colOf(hdr,['ทะเบียน']),iInv=colOf(hdr,['โรงงาน(inv']),iFactDt=colOf(hdr,['เข้าโรงงาน']),iCtrN=colOf(hdr,['เบอร์ตู้']),iCado=colOf(hdr,['CADO']),iPickup=colOf(hdr,['DATE PICK','PICKUP']);
+  const iTrk=colOf(hdr,['ทะเบียน']);
+  /* รองรับหลายรูปแบบชื่อคอลัมน์อินวอยซ์ในฐานข้อมูล */
+  const iInv=colOf(hdr,['โรงงาน(inv','อินวอยซ์','INVOICE','INV NO','เลขที่ใบ']);
+  const iFactDt=colOf(hdr,['เข้าโรงงาน']),iCtrN=colOf(hdr,['เบอร์ตู้']),iCado=colOf(hdr,['CADO']),iPickup=colOf(hdr,['DATE PICK','PICKUP']);
   let iFactory=-1;hdr.forEach((hh,idx)=>{if(hh.trim()==='โรงงาน')iFactory=idx;});
   const map={};
   for(let i=hi+1;i<rows.length;i++){
@@ -344,14 +347,34 @@ function mergeTransport(wb2,target){
 }
 
 /* ===== PRE_PAID_TRANSPORT =====
-   อินวอยซ์มกราคม 2026 ที่จ่ายค่าขนส่งครบแล้ว
-   ใช้ normInv(inv) เป็น key — เลขอินวอยซ์มีปี 2026 อยู่แล้ว
-   จึงไม่มี false match กับมกราคมปีหน้า (จะเป็น 2027) */
+   อินวอยซ์มกราคม 2026 ที่จ่ายค่าขนส่งครบแล้ว (ยังไม่มีข้อมูลในไฟล์ Dropbox)
+   key = normInv(inv) จากไฟล์ allInv — ครบทุกอินวอยซ์ ม.ค. 2026 */
 const PRE_PAID_INV=new Set([
-  'BSW-T-03/2026',        // BSW — มกราคม 2026 (13 ตู้)
-  'INV001/002/2026',      // TWI/OTH — มกราคม 2026 (3 ตู้)
-  'INV006/001/2026(A)',   // OGM — มกราคม 2026 (2 ตู้)
-]); /* 3 invoice — 18 ตู้ — มกราคม 2026 */
+  'INV001/015/2025(B)',   // #1  ม.ค. 2026  0/6
+  'BSW-J-01/2026',        // #2  ม.ค. 2026  0/4
+  'BSW-T-01/2026',        // #3  ม.ค. 2026  0/10
+  'BSW-L-01/2026',        // #4  ม.ค. 2026  0/12
+  'INV002/001/2026(A)',   // #5  ม.ค. 2026  0/15
+  'TWI60/060/10/25',      // #6  ม.ค. 2026  0/13
+  'BSW-L-02/2026',        // #7  ม.ค. 2026  0/19
+  'SHL-250904-1',         // #8  ม.ค. 2026  0/5
+  'INV002/001/2026(B)',   // #9  ม.ค. 2026  0/14
+  'ANTS-JM001/2026',      // #10 ม.ค. 2026  0/1
+  'ANTS-JM002/2026',      // #11 ม.ค. 2026  0/3
+  'TWI57/059/23/25',      // #12 ม.ค. 2026  0/16
+  'BSW-T-02/2026',        // #13 ม.ค. 2026  0/15
+  'BSW-L-03/2026',        // #14 ม.ค. 2026  0/30
+  'INV001/001/2026',      // #15 ม.ค. 2026  0/15
+  'TWI01/049/01/26',      // #16 ม.ค. 2026  0/5
+  'BSW-L-04/2026',        // #17 ม.ค. 2026  0/25
+  'SHL-251203',           // #18 ม.ค. 2026  0/5
+  'ANTS-JM003/2026',      // #19 ม.ค. 2026  0/2
+  'TWI61/025/01/26',      // #20 ม.ค. 2026  0/5
+  'BSW-J-02/2026',        // #21 ม.ค. 2026  0/20
+  'SJ-SN6901002-2026',    // #22 ม.ค. 2026  0/10
+  'TWI63/060/11/25',      // #23 ม.ค. 2026  0/14  (DATABASE: TWI02/060/01/26(TWI63))
+  /* OGM(A)001/2026 — มีข้อมูลจริงในไฟล์แล้ว ไม่ต้องใส่ */
+]); /* 23 อินวอยซ์ — ม.ค. 2026 ครบทุกตู้ */
 function isPrePaidTr(inv){
   return PRE_PAID_INV.has(normInv(inv));
 }
@@ -360,14 +383,18 @@ function isPrePaidTr(inv){
 /* Composite key: normInv(inv) + '|' + normStr(container) + '|' + normStr(truck)
    เบอร์ตู้อาจเวียนซ้ำ ต้องใช้ทั้ง 3 field */
 /* lookupDb: หา rows จาก normDb ด้วย key nk
-   ถ้า direct match ไม่เจอ → scan หา database key ที่มี nk อยู่ข้างในวงเล็บ
-   เช่น nk="TWI63" จะเจอ "TWI02(TWI63)"
-   ปลอดภัย: nk ต้องตรงกับ content ในวงเล็บทั้งหมด → (A)(B)(B-1) ไม่มั่ว */
+   1) direct match: "TWI63/060/11/25" → "TWI63/060/11/25"
+   2) exact paren match: "TWI63" → "TWI02(TWI63)"
+   3) prefix paren match: "TWI63/060/11/25" ขึ้นต้นด้วย "TWI63/" → "TWI02(TWI63)"
+   ปลอดภัย: startsWith ต้องตามด้วย / หรือ - เพื่อกัน TWI630 ชนกับ TWI63 */
 function lookupDb(normDb,nk){
   if(normDb[nk])return normDb[nk];
   const found=Object.keys(normDb).find(k=>{
     const matches=k.match(/\(([^)]+)\)/g)||[];
-    return matches.some(p=>p.slice(1,-1)===nk);
+    return matches.some(p=>{
+      const c=p.slice(1,-1);
+      return c===nk||nk.startsWith(c+'/')||nk.startsWith(c+'-');
+    });
   });
   return found?normDb[found]:[];
 }
