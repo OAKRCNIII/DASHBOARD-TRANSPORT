@@ -480,11 +480,14 @@ function extractLatestBill(sheet){
   if(!sheet)return'-';
   const rows=XLSX.utils.sheet_to_json(sheet,{header:1,defval:'',raw:true});
   const hi=findHdrRow(rows,['INV','PRICE','วันที่']);
-  const iBill=8;
-  /* เอาแถวล่าสุดที่มีเลข bill จริง (ข้อมูลเรียงตามเวลา → แถวสุดท้าย = ล่าสุด) */
+  /* หา column "AL" จาก header row แบบ dynamic */
+  const hdr=rows[hi]||[];
+  const iAL=hdr.findIndex(c=>String(c||'').trim().toUpperCase()==='AL');
+  if(iAL<0)return'-';
+  /* เอาแถวล่าสุดที่มีค่า AL จริง (ข้อมูลเรียงตามเวลา → แถวสุดท้าย = ล่าสุด) */
   let lastBill='-';
   for(let i=hi+1;i<rows.length;i++){
-    const v=String(rows[i]&&rows[i][iBill]||'').trim();
+    const v=String(rows[i]&&rows[i][iAL]||'').trim();
     if(v&&v!=='-')lastBill=v;
   }
   return lastBill;
