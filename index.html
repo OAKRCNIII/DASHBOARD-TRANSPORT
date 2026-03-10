@@ -86,6 +86,14 @@ body{font-family:'Segoe UI',Arial,sans-serif;background:#f0f4f8;color:#1a202c;fo
 /* Det summary row */
 .det-sum{font-size:11px;margin-top:8px;display:flex;gap:12px;flex-wrap:wrap;padding:6px 10px;background:#f0fdf4;border-radius:6px;border:1px solid #bbf7d0;}
 .det-sum span{font-weight:700;color:#166534;}
+/* PREFIX BAR */
+.prefix-bar{display:flex;gap:6px;padding:6px 16px 8px;background:white;border-bottom:1px solid #e2e8f0;flex-wrap:wrap;align-items:center;}
+.prefix-bar:empty{display:none;}
+.pfx-tab{padding:4px 10px;border-radius:14px;border:1.5px solid;font-size:11px;font-weight:800;cursor:pointer;transition:all .15s;opacity:.55;}
+.pfx-tab:hover{opacity:.85;}
+.pfx-tab.active{opacity:1;box-shadow:0 1px 4px rgba(0,0,0,.12);}
+.pfx-tab-all{background:#f1f5f9;color:#475569;border-color:#cbd5e0;}
+.pfx-tab-all.active{background:#1a365d;color:white;border-color:#1a365d;opacity:1;}
 /* No data */
 .no-inv{text-align:center;padding:40px;color:#94a3b8;font-size:13px;}
 /* Amount */
@@ -176,6 +184,8 @@ body{font-family:'Segoe UI',Arial,sans-serif;background:#f0f4f8;color:#1a202c;fo
       <input class="search-inp" id="searchInp" type="text" placeholder="🔍 ค้นหาอินวอยซ์...">
     </div>
   </div>
+  <!-- Prefix (factory) filter bar — populated dynamically -->
+  <div class="prefix-bar" id="prefixBar"></div>
   <div class="tbl-wrap">
     <table class="inv-tbl" id="invTbl">
       <thead>
@@ -333,8 +343,37 @@ function mergeTransport(wb2,target){
   Object.keys(m).forEach(k=>{if(!target[k])target[k]=[];target[k]=target[k].concat(m[k]);});
 }
 
+/* ===== PRE_PAID_TRANSPORT =====
+   ตู้มกราคม 2026 ที่จ่ายค่าขนส่งแล้วแต่อาจยังไม่มีในไฟล์ Dropbox
+   Composite key: normInv(inv) + '|' + normStr(container) + '|' + normStr(truck)
+   ระบุรายตู้เพื่อป้องกัน false match กับมกราคมปีหน้า */
+const PRE_PAID_TRANSPORT=new Set([
+  'BSW-T-03/2026|OOCU8213425|72-1595',       // BSW-T-03/2026 | OOCU8213425 | 72-1595
+  'INV006/001/2026(A)|OOCU7956405|72-2653',  // INV006/001/2026(A) | OOCU7956405 | 72-2653
+  'BSW-T-03/2026|TCNU2557367|71-7921',       // BSW-T-03/2026 | TCNU2557367 | 71-7921
+  'BSW-T-03/2026|OOCU6802370|72-2665',       // BSW-T-03/2026 | OOCU6802370 | 72-2665
+  'BSW-T-03/2026|TGBU8881917|70-4118',       // BSW-T-03/2026 | TGBU8881917 | 70-4118
+  'INV001/002/2026|FCIU9662733|72-3058',     // INV001/002/2026 | FCIU9662733 | 72-3058
+  'INV001/002/2026|OOCU9472631|72-1176',     // INV001/002/2026 | OOCU9472631 | 72-1176
+  'BSW-T-03/2026|OOCU7174730|70-0996',       // BSW-T-03/2026 | OOCU7174730 | 70-0996
+  'BSW-T-03/2026|FCIU9905303|70-0790',       // BSW-T-03/2026 | FCIU9905303 | 70-0790
+  'BSW-T-03/2026|CSLU6033494|72-2237',       // BSW-T-03/2026 | CSLU6033494 | 72-2237
+  'BSW-T-03/2026|CSNU8320314|72-2953',       // BSW-T-03/2026 | CSNU8320314 | 72-2953
+  'BSW-T-03/2026|OOCU8124164|72-2953',       // BSW-T-03/2026 | OOCU8124164 | 72-2953
+  'BSW-T-03/2026|OOCU8211741|72-1620',       // BSW-T-03/2026 | OOCU8211741 | 72-1620
+  'INV001/002/2026|TGBU4870540|72-2953',     // INV001/002/2026 | TGBU4870540 | 72-2953
+  'INV001/002/2026|OOCU7650987|71-9538',     // INV001/002/2026 | OOCU7650987 | 71-9538
+  'BSW-T-03/2026|CSNU8017416|72-2420',       // BSW-T-03/2026 | CSNU8017416 | 72-2420
+  'INV006/001/2026(A)|OOCU7186686|72-2420',  // INV006/001/2026(A) | OOCU7186686 | 72-2420
+  'BSW-T-03/2026|FFAU5873643|72-0562',       // BSW-T-03/2026 | FFAU5873643 | 72-0562
+]); /* 18 ตู้ — มกราคม 2026 */
+function isPrePaidTr(inv,container,truck){
+  const k=normInv(inv)+'|'+normStr(container)+'|'+normStr(truck);
+  return PRE_PAID_TRANSPORT.has(k);
+}
+
 /* ===== MATCH: DATABASE rows ↔ TRANSPORT records ===== */
-/* Composite key: normInv(inv) + normStr(container) + normStr(truck)
+/* Composite key: normInv(inv) + '|' + normStr(container) + '|' + normStr(truck)
    เบอร์ตู้อาจเวียนซ้ำ ต้องใช้ทั้ง 3 field */
 function matchContainers(allInv,dbMap,trMap){
   /* normalise dbMap keys */
@@ -344,16 +383,21 @@ function matchContainers(allInv,dbMap,trMap){
     const nk=normInv(inv.inv);
     const dbRows=normDb[nk]||[];
     const trRecs=trMap[nk]||[];
-    /* จับคู่แต่ละ container row */
+    /* จับคู่แต่ละ container row
+       1) หา record จาก trMap ก่อน (ข้อมูลจริงจากไฟล์)
+       2) ถ้าไม่เจอ → ตรวจ PRE_PAID_TRANSPORT (hardcoded ม.ค. 2026) */
     const details=dbRows.map(row=>{
       const matched=trRecs.find(tr=>
         normStr(tr.container)===normStr(row.เบอร์ตู้)&&
         normStr(tr.truck)===normStr(row.ทะเบียนรถ)
       )||null;
-      return{...row,trMatch:matched};
+      const prePaid=!matched&&isPrePaidTr(inv.inv,row.เบอร์ตู้,row.ทะเบียนรถ);
+      /* prePaid: สร้าง synthetic match object เพื่อให้ logic เดิมทำงานได้ */
+      const effectiveMatch=matched||(prePaid?{price:0,date:'-',factory:'-',billNo:'ยืนยันแล้ว (ม.ค.2026)',al:'',_prePaid:true}:null);
+      return{...row,trMatch:effectiveMatch};
     });
     const paidCount=details.filter(r=>r.trMatch).length;
-    const totalPaid=details.reduce((a,r)=>a+(r.trMatch?r.trMatch.price:0),0);
+    const totalPaid=details.reduce((a,r)=>a+(r.trMatch&&!r.trMatch._prePaid?r.trMatch.price:0),0);
     let status='nodata';
     if(details.length>0){
       if(paidCount===details.length)status='full';
@@ -366,7 +410,7 @@ function matchContainers(allInv,dbMap,trMap){
 
 /* ===== STATE ===== */
 let DATA=[]; /* matched invoice list */
-let curFilter='all',curSearch='',openRows=new Set();
+let curFilter='all',curPrefix='all',curSearch='',openRows=new Set();
 
 async function loadData(){
   const invPath=ls('dbx_inv_path'),ogmPath=ls('dbx_tr_ogm_path'),allPath=ls('dbx_tr_all_path');
@@ -421,10 +465,31 @@ function statusBadge(status){
   return '<span class="status-badge s-nodata">— ไม่มีข้อมูลตู้</span>';
 }
 
+function renderPrefixBar(){
+  /* สร้าง prefix tabs จากข้อมูลจริง (dynamic) */
+  const pfxMap={};
+  DATA.forEach(d=>{
+    if(!pfxMap[d.prefix])pfxMap[d.prefix]={count:0,full:0,none:0};
+    pfxMap[d.prefix].count++;
+    if(d.status==='full')pfxMap[d.prefix].full++;
+    if(d.status==='none')pfxMap[d.prefix].none++;
+  });
+  const pfxs=Object.keys(pfxMap).sort();
+  let html='<button class="pfx-tab pfx-tab-all'+(curPrefix==='all'?' active':'')+'" data-pfx="all">🏭 ทุกโรงงาน ('+DATA.length+')</button>';
+  pfxs.forEach(pfx=>{
+    const s=pst(pfx);const info=pfxMap[pfx];
+    const dot=info.none>0?'<span style="display:inline-block;width:6px;height:6px;background:#ef4444;border-radius:50%;margin-left:3px;vertical-align:middle;"></span>':'';
+    html+='<button class="pfx-tab'+(curPrefix===pfx?' active':'')+'" data-pfx="'+h(pfx)+'" '
+      +'style="background:'+s.bg+';color:'+s.tx+';border-color:'+s.bd+';">'
+      +h(pfx)+' <span style="font-weight:400;font-size:10px;">('+info.count+')</span>'+dot+'</button>';
+  });
+  document.getElementById('prefixBar').innerHTML=html;
+}
 function renderTable(){
   const q=curSearch.trim().toUpperCase();
   const list=DATA.filter(d=>{
     if(curFilter!=='all'&&d.status!==curFilter)return false;
+    if(curPrefix!=='all'&&d.prefix!==curPrefix)return false;
     if(q&&!d.inv.toUpperCase().includes(q)&&!d.customer.toUpperCase().includes(q))return false;
     return true;
   });
@@ -453,9 +518,14 @@ function renderTable(){
     if(d.details.length===0){
       html+='<div style="color:#94a3b8;font-size:12px;padding:8px 0;">ยังไม่มีข้อมูลตู้ใน DATABASE</div>';
     }else{
-      const paidRecs=d.details.filter(r=>r.trMatch);
+      const paidRecs=d.details.filter(r=>r.trMatch&&!r.trMatch._prePaid);
+      const prePaidRecs=d.details.filter(r=>r.trMatch&&r.trMatch._prePaid);
       const billNos=[...new Set(paidRecs.map(r=>r.trMatch.billNo).filter(Boolean))];
-      html+='<div class="det-sum">ตู้จ่ายแล้ว: <span>'+d.paidCount+'/'+d.details.length+'</span> &nbsp;|&nbsp; ยอดรวม: <span>'+fmtAmt(d.totalPaid)+' บาท</span>'+(billNos.length?' &nbsp;|&nbsp; ใบวางบิล: <span>'+billNos.join(', ')+'</span>':'')+'</div>';
+      html+='<div class="det-sum">ตู้จ่ายแล้ว: <span>'+d.paidCount+'/'+d.details.length+'</span>'
+        +(d.totalPaid>0?' &nbsp;|&nbsp; ยอดรวม: <span>'+fmtAmt(d.totalPaid)+' บาท</span>':'')
+        +(billNos.length?' &nbsp;|&nbsp; ใบวางบิล: <span>'+billNos.join(', ')+'</span>':'')
+        +(prePaidRecs.length?' &nbsp;|&nbsp; <span style="color:#7c3aed;">📌 ยืนยันแล้ว '+prePaidRecs.length+' ตู้ (ม.ค.2026)</span>':'')
+        +'</div>';
       html+='<table class="det-tbl"><thead><tr><th>ทะเบียนรถ</th><th>เบอร์ตู้</th><th>โรงงาน</th><th>เข้าโรงงาน</th><th>DATE PICKUP</th><th style="text-align:right;">ค่าขนส่ง (บาท)</th><th>ใบวางบิล</th><th style="text-align:center;">สถานะ</th></tr></thead><tbody>';
       d.details.forEach(row=>{
         const tr=row.trMatch;
@@ -465,10 +535,16 @@ function renderTable(){
         html+='<td>'+h(row.โรงงาน)+'</td>';
         html+='<td>'+h(row.เข้าโรงงาน)+'</td>';
         html+='<td>'+h(row.DATE_PICKUP)+'</td>';
-        if(tr){
+        if(tr&&!tr._prePaid){
+          /* จับคู่ได้จากไฟล์จริง */
           html+='<td style="text-align:right;font-weight:700;color:#16a34a;white-space:nowrap;">'+fmtAmt(tr.price)+'</td>';
           html+='<td style="font-size:10px;color:#64748b;">'+h(tr.billNo)+'<br><span style="color:#94a3b8;font-size:9px;">'+h(tr.al)+'</span></td>';
           html+='<td style="text-align:center;"><span class="paid-mark paid-yes">✅ จ่ายแล้ว</span></td>';
+        }else if(tr&&tr._prePaid){
+          /* ยืนยันจาก PRE_PAID_TRANSPORT (hardcoded ม.ค.2026) */
+          html+='<td style="text-align:right;"><span style="color:#7c3aed;font-size:10px;">—</span></td>';
+          html+='<td style="font-size:10px;color:#7c3aed;">ม.ค.2026</td>';
+          html+='<td style="text-align:center;"><span class="paid-mark" style="background:#ede9fe;color:#6d28d9;">📌 ยืนยันแล้ว</span></td>';
         }else{
           html+='<td style="text-align:right;"><span style="color:#94a3b8;">-</span></td>';
           html+='<td></td>';
@@ -484,13 +560,14 @@ function renderTable(){
 }
 
 function showDashboard(data){
-  DATA=data;
+  DATA=data;curPrefix='all';curFilter='all';curSearch='';openRows.clear();
   document.getElementById('loadScreen').style.display='none';
   document.getElementById('app').style.display='flex';
   document.getElementById('app').style.flexDirection='column';
   const now=new Date();
   document.getElementById('lastUpd').textContent='อัปเดต '+pad(now.getHours())+':'+pad(now.getMinutes());
   renderStats();
+  renderPrefixBar();
   renderTable();
 }
 
@@ -550,6 +627,12 @@ document.getElementById('filterBar').addEventListener('click',e=>{
   const t=e.target.closest('.ftab[data-f]');if(!t)return;
   curFilter=t.dataset.f;openRows.clear();
   document.querySelectorAll('.ftab').forEach(b=>b.classList.toggle('active',b.dataset.f===curFilter));
+  renderTable();
+});
+document.getElementById('prefixBar').addEventListener('click',e=>{
+  const t=e.target.closest('[data-pfx]');if(!t)return;
+  curPrefix=t.dataset.pfx;openRows.clear();
+  renderPrefixBar();
   renderTable();
 });
 
