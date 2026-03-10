@@ -96,6 +96,29 @@ body{font-family:'Segoe UI',Arial,sans-serif;background:#f0f4f8;color:#1a202c;fo
 .pfx-tab-all.active{background:#1a365d;color:white;border-color:#1a365d;opacity:1;}
 /* No data */
 .no-inv{text-align:center;padding:40px;color:#94a3b8;font-size:13px;}
+/* Bill info bar */
+.bill-info-bar{display:flex;gap:12px;padding:6px 16px;background:#f8fafc;border-bottom:1px solid #e2e8f0;font-size:11px;color:#64748b;flex-wrap:wrap;align-items:center;}
+.bill-chip{background:white;border:1px solid #e2e8f0;border-radius:6px;padding:3px 10px;display:inline-flex;gap:6px;align-items:center;}
+.bill-chip .lbl{color:#94a3b8;font-size:10px;}
+.bill-chip .val{font-weight:700;color:#0f172a;}
+/* View toggle */
+.view-toggle{display:flex;gap:4px;margin-left:auto;}
+.vtab{padding:5px 12px;border-radius:8px;border:1.5px solid #e2e8f0;font-size:11px;font-weight:700;cursor:pointer;background:white;color:#64748b;transition:all .15s;}
+.vtab.active{background:#064e3b;color:white;border-color:#064e3b;}
+/* Monthly summary */
+.month-wrap{flex:1;overflow:auto;padding:12px 16px;display:none;}
+.month-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;}
+.month-card{background:white;border-radius:10px;box-shadow:0 1px 8px rgba(0,0,0,.08);padding:14px 16px;border-left:4px solid #064e3b;}
+.month-card .mc-hdr{font-weight:800;font-size:15px;color:#0f172a;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;}
+.month-card .mc-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+.mc-stat{display:flex;flex-direction:column;gap:2px;}
+.mc-stat .mv{font-weight:700;font-size:16px;color:#0f172a;}
+.mc-stat .ml{font-size:10px;color:#94a3b8;text-transform:uppercase;}
+.mc-amt{font-weight:800;font-size:18px;color:#059669;}
+.mc-badge{font-size:11px;padding:2px 8px;border-radius:10px;font-weight:700;}
+.mc-full{background:#dcfce7;color:#166534;}
+.mc-partial{background:#fef3c7;color:#92400e;}
+.mc-none{background:#fee2e2;color:#991b1b;}
 /* Amount */
 .amt-paid{font-weight:700;color:#16a34a;}
 .amt-zero{color:#94a3b8;}
@@ -173,6 +196,12 @@ body{font-family:'Segoe UI',Arial,sans-serif;background:#f0f4f8;color:#1a202c;fo
       <button class="hdr-btn" id="settingsBtn">⚙️</button>
     </div>
   </div>
+  <!-- Bill info: latest bill numbers from each file -->
+  <div class="bill-info-bar" id="billInfoBar" style="display:none;">
+    <span style="font-size:10px;font-weight:700;color:#64748b;letter-spacing:.4px;">อัปเดตล่าสุดถึงหมายเลข</span>
+    <span class="bill-chip" id="billOgm"><span class="lbl">OGM</span><span class="val" id="billOgmVal">—</span></span>
+    <span class="bill-chip" id="billAll"><span class="lbl">ALL</span><span class="val" id="billAllVal">—</span></span>
+  </div>
   <div class="stats-bar" id="sBar"></div>
   <div class="filter-bar" id="filterBar">
     <button class="ftab f-all active" data-f="all">ทั้งหมด <span id="cnt-all"></span></button>
@@ -183,10 +212,19 @@ body{font-family:'Segoe UI',Arial,sans-serif;background:#f0f4f8;color:#1a202c;fo
     <div class="search-wrap">
       <input class="search-inp" id="searchInp" type="text" placeholder="🔍 ค้นหาอินวอยซ์...">
     </div>
+    <!-- View toggle -->
+    <div class="view-toggle">
+      <button class="vtab active" data-v="invoice">📋 รายอินวอยซ์</button>
+      <button class="vtab" data-v="month">📅 รายเดือน</button>
+    </div>
   </div>
   <!-- Prefix (factory) filter bar — populated dynamically -->
   <div class="prefix-bar" id="prefixBar"></div>
-  <div class="tbl-wrap">
+  <!-- Monthly summary view -->
+  <div class="month-wrap" id="monthWrap">
+    <div class="month-grid" id="monthGrid"></div>
+  </div>
+  <div class="tbl-wrap" id="tblWrap">
     <table class="inv-tbl" id="invTbl">
       <thead>
         <tr>
@@ -434,6 +472,25 @@ function matchContainers(allInv,dbMap,trMap){
 /* ===== STATE ===== */
 let DATA=[]; /* matched invoice list */
 let curFilter='all',curPrefix='all',curSearch='',openRows=new Set();
+let curView='invoice'; /* 'invoice' | 'month' */
+let BILL_INFO={ogm:'-',all:'-'}; /* latest bill numbers */
+
+/* ===== EXTRACT LATEST BILL NUMBER ===== */
+function extractLatestBill(sheet){
+  if(!sheet)return'-';
+  const rows=XLSX.utils.sheet_to_json(sheet,{header:1,defval:'',raw:true});
+  const hi=findHdrRow(rows,['INV','PRICE','วันที่']);
+  const iBill=8;
+  let maxNum=0,maxBill='-';
+  for(let i=hi+1;i<rows.length;i++){
+    const v=String(rows[i]&&rows[i][iBill]||'').trim();
+    if(!v||v==='-')continue;
+    /* ดึงตัวเลขออกมา เลือก bill ที่มีเลขสูงสุด */
+    const n=parseInt((v.match(/\d+/)||['0'])[0])||0;
+    if(n>maxNum||(n===0&&maxBill==='-')){maxNum=n;maxBill=v;}
+  }
+  return maxBill;
+}
 
 async function loadData(){
   const invPath=ls('dbx_inv_path'),ogmPath=ls('dbx_tr_ogm_path'),allPath=ls('dbx_tr_all_path');
@@ -450,9 +507,22 @@ async function loadData(){
   const allInv=parseAllInv(invWb.Sheets[invSheet]);
   const dbMap=parseDatabase(invWb.Sheets[dbSheet]);
   const trMap={};
+  BILL_INFO={ogm:'-',all:'-'};
   let bi=1;
-  if(hasOgm&&bufs[bi]){mergeTransport(XLSX.read(bufs[bi],{type:'array',cellDates:true}),trMap);bi++;}
-  if(hasAll&&bufs[bi]){mergeTransport(XLSX.read(bufs[bi],{type:'array',cellDates:true}),trMap);bi++;}
+  if(hasOgm&&bufs[bi]){
+    const wb=XLSX.read(bufs[bi],{type:'array',cellDates:true});
+    mergeTransport(wb,trMap);
+    const sh=wb.Sheets['DATA_BASE_BILL']||wb.Sheets[wb.SheetNames.find(n=>n.toUpperCase().includes('DATA_BASE_BILL'))||''];
+    BILL_INFO.ogm=extractLatestBill(sh||null);
+    bi++;
+  }
+  if(hasAll&&bufs[bi]){
+    const wb=XLSX.read(bufs[bi],{type:'array',cellDates:true});
+    mergeTransport(wb,trMap);
+    const sh=wb.Sheets['DATA_BASE_BILL_ALL']||wb.Sheets[wb.SheetNames.find(n=>n.toUpperCase().includes('DATA_BASE_BILL'))||''];
+    BILL_INFO.all=extractLatestBill(sh||null);
+    bi++;
+  }
   return matchContainers(allInv,dbMap,trMap);
 }
 
@@ -498,7 +568,17 @@ function renderPrefixBar(){
     if(d.status==='none')pfxMap[d.prefix].none++;
   });
   const pfxs=Object.keys(pfxMap).sort();
+  /* นับ "ยกเว้น OGM" */
+  const noOgmList=DATA.filter(d=>d.prefix!=='OGM');
+  const noOgmDot=noOgmList.some(d=>d.status==='none');
   let html='<button class="pfx-tab pfx-tab-all'+(curPrefix==='all'?' active':'')+'" data-pfx="all">🏭 ทุกโรงงาน ('+DATA.length+')</button>';
+  /* ปุ่ม "ยกเว้น OGM" */
+  if(pfxMap['OGM']){
+    const dot=noOgmDot?'<span style="display:inline-block;width:6px;height:6px;background:#ef4444;border-radius:50%;margin-left:3px;vertical-align:middle;"></span>':'';
+    html+='<button class="pfx-tab'+(curPrefix==='no-ogm'?' active':'')+'" data-pfx="no-ogm" '
+      +'style="background:#fafafa;color:#374151;border-color:#d1d5db;border-style:dashed;">'
+      +'🚫 ยกเว้น OGM <span style="font-weight:400;font-size:10px;">('+noOgmList.length+')</span>'+dot+'</button>';
+  }
   pfxs.forEach(pfx=>{
     const s=pst(pfx);const info=pfxMap[pfx];
     const dot=info.none>0?'<span style="display:inline-block;width:6px;height:6px;background:#ef4444;border-radius:50%;margin-left:3px;vertical-align:middle;"></span>':'';
@@ -508,11 +588,16 @@ function renderPrefixBar(){
   });
   document.getElementById('prefixBar').innerHTML=html;
 }
+function matchPrefix(d){
+  if(curPrefix==='all')return true;
+  if(curPrefix==='no-ogm')return d.prefix!=='OGM';
+  return d.prefix===curPrefix;
+}
 function renderTable(){
   const q=curSearch.trim().toUpperCase();
   const list=DATA.filter(d=>{
     if(curFilter!=='all'&&d.status!==curFilter)return false;
-    if(curPrefix!=='all'&&d.prefix!==curPrefix)return false;
+    if(!matchPrefix(d))return false;
     if(q&&!d.inv.toUpperCase().includes(q)&&!d.customer.toUpperCase().includes(q))return false;
     return true;
   });
@@ -582,16 +667,89 @@ function renderTable(){
   document.getElementById('invBody').innerHTML=html;
 }
 
+/* ===== MONTHLY SUMMARY ===== */
+const MONTH_ORDER=['1','2','3','4','5','6','7','8','9','10','11','12','-'];
+function renderMonthSummary(){
+  const q=curSearch.trim().toUpperCase();
+  /* กรอง prefix เหมือน invoice view (รองรับ no-ogm) */
+  const src=DATA.filter(d=>{
+    if(!matchPrefix(d))return false;
+    if(q&&!d.inv.toUpperCase().includes(q)&&!d.customer.toUpperCase().includes(q))return false;
+    return true;
+  });
+  /* group by month */
+  const months={};
+  src.forEach(d=>{
+    const m=d.month||'-';
+    if(!months[m])months[m]={inv:0,ctr:0,paid:0,amount:0,full:0,partial:0,none:0,nodata:0};
+    const g=months[m];
+    g.inv++;
+    g.ctr+=d.details.length;
+    g.paid+=d.paidCount;
+    g.amount+=d.totalPaid;
+    if(d.status==='full')g.full++;
+    else if(d.status==='partial')g.partial++;
+    else if(d.status==='none')g.none++;
+    else g.nodata++;
+  });
+  const keys=MONTH_ORDER.filter(m=>months[m]).concat(Object.keys(months).filter(m=>!MONTH_ORDER.includes(m)));
+  if(!keys.length){document.getElementById('monthGrid').innerHTML='<div style="color:#94a3b8;padding:20px;">ไม่พบข้อมูล</div>';return;}
+  let html='';
+  keys.forEach(m=>{
+    const g=months[m];
+    const pct=g.ctr>0?Math.round(g.paid/g.ctr*100):0;
+    const barColor=pct===100?'#16a34a':pct>0?'#f59e0b':'#f87171';
+    const mLabel=MF[m]||m;
+    /* status badges */
+    let badges='';
+    if(g.full)badges+='<span class="mc-badge mc-full">✅ ครบ '+g.full+'</span> ';
+    if(g.partial)badges+='<span class="mc-badge mc-partial">⚠️ บางส่วน '+g.partial+'</span> ';
+    if(g.none)badges+='<span class="mc-badge mc-none">❌ ค้าง '+g.none+'</span> ';
+    html+='<div class="month-card">';
+    html+='<div class="mc-hdr"><span>📅 '+mLabel+'</span><span style="font-size:11px;font-weight:400;color:#64748b;">'+g.inv+' อินวอยซ์</span></div>';
+    html+='<div class="mc-grid">';
+    html+='<div class="mc-stat"><span class="mv">'+g.ctr+'</span><span class="ml">ตู้ทั้งหมด</span></div>';
+    html+='<div class="mc-stat"><span class="mv">'+g.paid+' <span style="font-size:12px;color:#94a3b8;">/ '+g.ctr+'</span></span><span class="ml">ตู้จ่ายแล้ว</span></div>';
+    html+='<div class="mc-stat" style="grid-column:span 2;"><span class="mc-amt">'+fmtAmt(g.amount)+' <span style="font-size:12px;font-weight:400;color:#94a3b8;">บาท</span></span><span class="ml">ยอดรวมค่าขนส่ง</span></div>';
+    html+='</div>';
+    /* progress bar */
+    html+='<div style="margin:10px 0 8px;background:#e2e8f0;border-radius:4px;height:6px;overflow:hidden;">';
+    html+='<div style="width:'+pct+'%;background:'+barColor+';height:100%;border-radius:4px;transition:width .4s;"></div></div>';
+    html+='<div style="font-size:11px;">'+badges+'</div>';
+    html+='</div>';
+  });
+  document.getElementById('monthGrid').innerHTML=html;
+}
+
+function renderView(){
+  const isMonth=curView==='month';
+  document.getElementById('tblWrap').style.display=isMonth?'none':'block';
+  document.getElementById('monthWrap').style.display=isMonth?'block':'none';
+  document.getElementById('filterBar').querySelector('.ftab.f-all').closest('.filter-bar');
+  /* hide status filter tabs in month view (ใช้ prefix/search ได้) */
+  document.querySelectorAll('.ftab[data-f]').forEach(b=>b.style.display=isMonth?'none':'');
+  document.getElementById('searchInp').parentElement.style.marginLeft=isMonth?'0':'';
+  if(isMonth)renderMonthSummary();
+  else renderTable();
+}
+
 function showDashboard(data){
-  DATA=data;curPrefix='all';curFilter='all';curSearch='';openRows.clear();
+  DATA=data;curPrefix='all';curFilter='all';curSearch='';openRows.clear();curView='invoice';
   document.getElementById('loadScreen').style.display='none';
   document.getElementById('app').style.display='flex';
   document.getElementById('app').style.flexDirection='column';
   const now=new Date();
   document.getElementById('lastUpd').textContent='อัปเดต '+pad(now.getHours())+':'+pad(now.getMinutes());
+  /* bill info */
+  const hasBill=BILL_INFO.ogm!=='-'||BILL_INFO.all!=='-';
+  document.getElementById('billInfoBar').style.display=hasBill?'flex':'none';
+  document.getElementById('billOgm').style.display=BILL_INFO.ogm!=='-'?'inline-flex':'none';
+  document.getElementById('billAll').style.display=BILL_INFO.all!=='-'?'inline-flex':'none';
+  document.getElementById('billOgmVal').textContent=BILL_INFO.ogm;
+  document.getElementById('billAllVal').textContent=BILL_INFO.all;
   renderStats();
   renderPrefixBar();
-  renderTable();
+  renderView();
 }
 
 /* ===== SETUP ===== */
@@ -647,19 +805,27 @@ document.getElementById('connectBtn').addEventListener('click',async()=>{
 });
 
 document.getElementById('filterBar').addEventListener('click',e=>{
+  /* view toggle */
+  const vt=e.target.closest('.vtab[data-v]');
+  if(vt){
+    curView=vt.dataset.v;openRows.clear();
+    document.querySelectorAll('.vtab').forEach(b=>b.classList.toggle('active',b.dataset.v===curView));
+    renderView();return;
+  }
+  /* status filter */
   const t=e.target.closest('.ftab[data-f]');if(!t)return;
   curFilter=t.dataset.f;openRows.clear();
-  document.querySelectorAll('.ftab').forEach(b=>b.classList.toggle('active',b.dataset.f===curFilter));
-  renderTable();
+  document.querySelectorAll('.ftab[data-f]').forEach(b=>b.classList.toggle('active',b.dataset.f===curFilter));
+  renderView();
 });
 document.getElementById('prefixBar').addEventListener('click',e=>{
   const t=e.target.closest('[data-pfx]');if(!t)return;
   curPrefix=t.dataset.pfx;openRows.clear();
   renderPrefixBar();
-  renderTable();
+  renderView();
 });
 
-document.getElementById('searchInp').addEventListener('input',e=>{curSearch=e.target.value;openRows.clear();renderTable();});
+document.getElementById('searchInp').addEventListener('input',e=>{curSearch=e.target.value;openRows.clear();renderView();});
 
 document.getElementById('invBody').addEventListener('click',e=>{
   const row=e.target.closest('tr.inv-row[data-inv]');if(!row)return;
